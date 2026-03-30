@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>部活ログ：月間・目標管理</title>
+    <style>
+        /* 基本設定 */
+        body { font-family: sans-serif; margin: 10px; color: #333; background-color: #f0f2f5; font-size: 14px; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        h2 { font-size: 1.1rem; margin-top: 0; color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; }
+        
+        /* 目標入力のレイアウト */
+        .goal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+        .goal-item { display: flex; flex-direction: column; font-size: 0.75rem; }
+        .goal-item label { margin-bottom: 2px; color: #666; font-weight: bold; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .goal-item input { padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; }
+
+        /* 入力レイアウト：スマホでは縦に並びやすく */
+        .input-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        input, select { padding: 12px; border: 1px solid #ccc; border-radius: 8px; flex: 1; min-width: 100px; font-size: 16px; } /* 16pxにするとiPhoneでズームされません */
+        
+        .btn { padding: 12px 15px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; }
+        .btn:active { opacity: 0.7; }
+        .btn-add { background: #1a73e8; color: white; width: 100%; margin-top: 5px; }
+        .btn-save-goal { background: #34a853; color: white; width: 100%; margin-top: 5px; }
+
+        /* 月切り替え */
+        .month-picker { background: #e8f0fe; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        
+        /* テーブル：スマホでの読みやすさを追求 */
+        .table-wrapper { 
+            overflow-x: auto; 
+            margin-top: 10px; 
+            -webkit-overflow-scrolling: touch; /* iPhoneでのスクロールを滑らかに */
+            border-radius: 8px;
+        }
+        table { width: 100%; border-collapse: collapse; min-width: 650px; font-size: 0.75rem; }
+        th, td { border: 1px solid #ddd; padding: 8px 2px; text-align: center; }
+        th { background: #5f6368; color: white; position: sticky; left: 0; }
+        .am-row { background: #ffffff; }
+        .pm-row { background: #f9f9f9; }
+        .date-cell { font-weight: bold; background: #eee; min-width: 30px; }
+        
+        /* 合計・目標行 */
+        .total-row { background: #fff9c4; font-weight: bold; }
+        .goal-display-row { background: #e8f5e9; color: #2e7d32; font-weight: bold; }
+        .diff-row { background: #fce4ec; color: #c2185b; font-size: 0.7rem; }
+        
+        /* 履歴：スマホで消しやすいように広めに */
+        .history-list { max-height: 200px; overflow-y: auto; font-size: 0.85rem; background: #fafafa; border-radius: 8px; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding: 12px 8px; }
+
+        /* スマホ専用の調整（画面幅が600px以下の時） */
+        @media (max-width: 600px) {
+            .goal-grid { grid-template-columns: repeat(2, 1fr); }
+            h2 { font-size: 1rem; }
+            .btn { font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card month-picker">
+        <strong>表示月:</strong>
+        <input type="month" id="viewMonth" onchange="refreshUI()">
+    </div>
+
+    <div class="card">
+        <h2>🎯 今月の目標 (分)</h2>
+        <div id="goalInputs" class="goal-grid"></div>
+        <button class="btn btn-save-goal" onclick="saveGoals()">目標を保存</button>
+    </div>
+
+    <div class="card">
+        <h2>📝 記録入力</h2>
+        <div class="input-row">
+            <input type="date" id="inputDate">
+            <select id="inputAMPM">
+                <option value="AM">午前 (AM)</option>
+                <option value="PM" selected>午後 (PM)</option>
+            </select>
+        </div>
+        <div class="input-row">
+            <select id="inputActivity">
+                <option value="ローラーF">ローラーF</option>
+                <option value="ローラーDP">ローラーDP</option>
+                <option value="ラン">ラン</option>
+                <option value="ポールラン">ポールラン</option>
+                <option value="筋トレ">筋トレ</option>
+                <option value="その他">その他</option>
+            </select>
+            <input type="number" id="inputDuration" placeholder="分数" inputmode="numeric">
+        </div>
+        <button class="btn btn-add" onclick="addRecord()">保存する</button>
+    </div>
+
+    <div class="card">
+        <h2>📊 月間集計 (AM/PM)</h2>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr id="tHead"></tr>
+                </thead>
+                <tbody id="tBody"></tbody>
+            </table>
+        </div>
+        <p style="font-size: 0.7rem; color: #888; text-align: right; margin-top: 5px;">※表は横にスクロールできます</p>
+    </div>
+
+    <div class="card">
+        <h2>🛠 履歴と削除</h2>
+        <div id="historyList" class="history-list"></div>
+    </div>
+
+<script>
+    // ※ JavaScriptロジックは一切変更していません。
+    const COLUMNS = ["ローラーF", "ローラーDP", "ラン", "ポールラン", "筋トレ", "その他"];
+    
+    window.onload = function() {
+        const now = new Date();
+        const monthStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0');
+        document.getElementById('viewMonth').value = monthStr;
+        document.getElementById('inputDate').valueAsDate = now;
+        initGoalInputs();
+        loadGoals();
+        refreshUI();
+    };
+
+    function initGoalInputs() {
+        const container = document.getElementById('goalInputs');
+        container.innerHTML = COLUMNS.map(col => `
+            <div class="goal-item">
+                <label>${col}</label>
+                <input type="number" id="goalVal_${col}" placeholder="0" inputmode="numeric">
+            </div>
+        `).join('');
+    }
+
+    function saveGoals() {
+        const goals = {};
+        COLUMNS.forEach(col => {
+            goals[col] = parseInt(document.getElementById(`goalVal_${col}`).value) || 0;
+        });
+        localStorage.setItem('club_goals_v3', JSON.stringify(goals));
+        alert("目標を保存しました！");
+        refreshUI();
+    }
+
+    function loadGoals() {
+        const goals = JSON.parse(localStorage.getItem('club_goals_v3')) || {};
+        COLUMNS.forEach(col => {
+            if (goals[col]) document.getElementById(`goalVal_${col}`).value = goals[col];
+        });
+    }
+
+    function addRecord() {
+        const date = document.getElementById('inputDate').value;
+        const ampm = document.getElementById('inputAMPM').value;
+        const activity = document.getElementById('inputActivity').value;
+        const duration = parseInt(document.getElementById('inputDuration').value) || 0;
+        if (duration <= 0) return alert("数値を入力してください");
+        const records = JSON.parse(localStorage.getItem('club_v3')) || [];
+        records.push({ date, ampm, activity, duration });
+        localStorage.setItem('club_v3', JSON.stringify(records));
+        document.getElementById('inputDuration').value = "";
+        refreshUI();
+    }
+
+    function refreshUI() {
+        const records = JSON.parse(localStorage.getItem('club_v3')) || [];
+        const viewMonth = document.getElementById('viewMonth').value;
+        displayTable(records, viewMonth);
+        displayHistory(records);
+    }
+
+    function displayTable(records, viewMonth) {
+        const tHead = document.getElementById('tHead');
+        const tBody = document.getElementById('tBody');
+        tHead.innerHTML = `<th>日</th><th>枠</th>` + COLUMNS.map(c => `<th>${c.slice(0,4)}</th>`).join(''); // 見出しを短く
+
+        const [year, month] = viewMonth.split('-').map(Number);
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const dataMap = {};
+        records.forEach(r => {
+            const key = `${r.date}_${r.ampm}`;
+            if (!dataMap[key]) dataMap[key] = {};
+            dataMap[key][r.activity] = (dataMap[key][r.activity] || 0) + r.duration;
+        });
+
+        tBody.innerHTML = "";
+        const colTotals = {};
+        COLUMNS.forEach(c => colTotals[c] = 0);
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            ["AM", "PM"].forEach(slot => {
+                const key = `${dateStr}_${slot}`;
+                let rowHtml = `<tr class="${slot === 'AM' ? 'am-row' : 'pm-row'}">`;
+                rowHtml += `<td class="date-cell">${slot === 'AM' ? d : ''}</td>`;
+                rowHtml += `<td>${slot}</td>`;
+                COLUMNS.forEach(col => {
+                    const val = (dataMap[key] && dataMap[key][col]) || 0;
+                    rowHtml += `<td>${val > 0 ? val : '-'}</td>`;
+                    colTotals[col] += val;
+                });
+                rowHtml += `</tr>`;
+                tBody.innerHTML += rowHtml;
+            });
+        }
+
+        const goals = JSON.parse(localStorage.getItem('club_goals_v3')) || {};
+        let totalHtml = `<tr class="total-row"><td colspan="2">合計</td>`;
+        COLUMNS.forEach(col => totalHtml += `<td>${colTotals[col]}</td>`);
+        totalHtml += `</tr>`;
+        
+        let goalHtml = `<tr class="goal-display-row"><td colspan="2">目標</td>`;
+        COLUMNS.forEach(col => goalHtml += `<td>${goals[col] || 0}</td>`);
+        goalHtml += `</tr>`;
+
+        let diffHtml = `<tr class="diff-row"><td colspan="2">残り</td>`;
+        COLUMNS.forEach(col => {
+            const diff = (goals[col] || 0) - colTotals[col];
+            diffHtml += `<td>${diff > 0 ? diff : '★'}</td>`;
+        });
+        diffHtml += `</tr>`;
+        tBody.innerHTML += totalHtml + goalHtml + diffHtml;
+    }
+
+    function displayHistory(records) {
+        const container = document.getElementById('historyList');
+        container.innerHTML = "";
+        records.slice().reverse().forEach((r, i) => {
+            const idx = records.length - 1 - i;
+            container.innerHTML += `
+                <div class="history-item">
+                    <span>${r.date.slice(5)}(${r.ampm}) ${r.activity}:${r.duration}分</span>
+                    <button class="btn" style="background:#ff4d4d; color:white; padding:5px 10px;" onclick="deleteRecord(${idx})">削除</button>
+                </div>`;
+        });
+    }
+
+    function deleteRecord(idx) {
+        if(!confirm("削除しますか？")) return;
+        const records = JSON.parse(localStorage.getItem('club_v3')) || [];
+        records.splice(idx, 1);
+        localStorage.setItem('club_v3', JSON.stringify(records));
+        refreshUI();
+    }
+</script>
+
+</body>
+</html>
